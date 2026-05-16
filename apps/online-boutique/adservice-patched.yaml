@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "2"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"adservice"},"name":"adservice","namespace":"default"},"spec":{"selector":{"matchLabels":{"app":"adservice"}},"template":{"metadata":{"labels":{"app":"adservice"}},"spec":{"containers":[{"env":[{"name":"PORT","value":"9555"}],"image":"us-central1-docker.pkg.dev/google-samples/microservices-demo/adservice:v0.10.5","livenessProbe":{"grpc":{"port":9555},"initialDelaySeconds":20,"periodSeconds":15},"name":"server","ports":[{"containerPort":9555}],"readinessProbe":{"grpc":{"port":9555},"initialDelaySeconds":20,"periodSeconds":15},"resources":{"limits":{"cpu":"300m","memory":"300Mi"},"requests":{"cpu":"100m","memory":"180Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"privileged":false,"readOnlyRootFilesystem":true}}],"securityContext":{"fsGroup":1000,"runAsGroup":1000,"runAsNonRoot":true,"runAsUser":1000},"serviceAccountName":"adservice","terminationGracePeriodSeconds":5}}}}
+  creationTimestamp: "2026-05-16T06:40:27Z"
+  generation: 2
+  labels:
+    app: adservice
+  name: adservice
+  namespace: default
+  resourceVersion: "38559"
+  uid: cc71b3e0-959d-4733-a107-3bfb5eac1fbf
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: adservice
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: adservice
+    spec:
+      containers:
+      - env:
+        - name: PORT
+          value: "9555"
+        image: us-central1-docker.pkg.dev/google-samples/microservices-demo/adservice:v0.10.5
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          grpc:
+            port: 9555
+            service: ""
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: server
+        ports:
+        - containerPort: 9555
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          grpc:
+            port: 9555
+            service: ""
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: 300m
+            memory: 300Mi
+          requests:
+            cpu: 100m
+            memory: 180Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          privileged: false
+          readOnlyRootFilesystem: true
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      serviceAccount: adservice
+      serviceAccountName: adservice
+      terminationGracePeriodSeconds: 5
+status:
+  availableReplicas: 1
+  conditions:
+  - lastTransitionTime: "2026-05-16T07:15:39Z"
+    lastUpdateTime: "2026-05-16T07:15:39Z"
+    message: Deployment has minimum availability.
+    reason: MinimumReplicasAvailable
+    status: "True"
+    type: Available
+  - lastTransitionTime: "2026-05-16T07:14:06Z"
+    lastUpdateTime: "2026-05-16T07:15:39Z"
+    message: ReplicaSet "adservice-5d56dd9dc9" has successfully progressed.
+    reason: NewReplicaSetAvailable
+    status: "True"
+    type: Progressing
+  observedGeneration: 2
+  readyReplicas: 1
+  replicas: 1
+  updatedReplicas: 1
