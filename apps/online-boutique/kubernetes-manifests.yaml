@@ -452,11 +452,11 @@ spec:
             cpu: 300m
             memory: 128Mi
         readinessProbe:
-          initialDelaySeconds: 15
+          initialDelaySeconds: 60
           grpc:
             port: 7070
         livenessProbe:
-          initialDelaySeconds: 15
+          initialDelaySeconds: 60
           periodSeconds: 10
           grpc:
             port: 7070
@@ -948,12 +948,12 @@ spec:
             cpu: 300m
             memory: 300Mi
         readinessProbe:
-          initialDelaySeconds: 20
+          initialDelaySeconds: 60
           periodSeconds: 15
           grpc:
             port: 9555
         livenessProbe:
-          initialDelaySeconds: 20
+          initialDelaySeconds: 60
           periodSeconds: 15
           grpc:
             port: 9555
