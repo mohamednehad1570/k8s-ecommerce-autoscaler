@@ -26,7 +26,7 @@ COPY requirements.txt .
 # - `-r requirements.txt`: install everything listed in the requirements file
 # - `--target /app/deps`: install packages into /app/deps instead of system site-packages
 #   This makes it easy to copy just the deps into the runtime stage
-RUN pip install --no-cache-dir --upgrade pip \
+RUN pip install --no-cache-dir pip==24.0 \
     && pip install --no-cache-dir -r requirements.txt --target /app/deps
 
 # --- Stage 2: runtime ---
