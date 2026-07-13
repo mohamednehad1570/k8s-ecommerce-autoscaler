@@ -1,0 +1,24 @@
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: frontend-scaledobject
+  namespace: online-boutique
+  labels:
+    app: frontend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: frontend
+  minReplicaCount: 0
+  maxReplicaCount: 5
+  cooldownPeriod: 60
+  pollingInterval: 15
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+      metricName: frontend_cpu_usage
+      query: sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace="online-boutique",container="server",pod=~"frontend.*"})
+      threshold: "0.05"

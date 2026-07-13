@@ -1,0 +1,29 @@
+
+apiVersion: argoproj.io/v1alpha1     # argoproj.io/v1alpha1: ArgoCD's API group for Applications
+kind: Application                    # kind: an ArgoCD Application — a GitOps-managed unit
+metadata:
+  name: autoscaling                  # name: how this app appears in the ArgoCD UI
+  namespace: argocd                  # namespace: ArgoCD Applications must live in the argocd namespace
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+                                     # finalizer: ensures when this Application is deleted,
+                                     # ArgoCD also cleans up the resources it created (cascade delete)
+spec:
+  project: default                   # project: the ArgoCD project this belongs to (default is fine here)
+  source:
+    repoURL: https://github.com/mohamednehad1570/k8s-ecommerce-autoscaler.git
+                                     # repoURL: the Git repo ArgoCD pulls manifests from
+    targetRevision: HEAD             # targetRevision: which Git ref to track — HEAD = latest on default branch
+    path: kubernetes/keda            # path: the folder ArgoCD watches — our ScaledObject + PDB live here
+  destination:
+    server: https://kubernetes.default.svc
+                                     # server: the target cluster — this in-cluster address = the local cluster
+    namespace: online-boutique       # namespace: where these resources get applied
+                                     # (matches the namespace inside the YAML files themselves)
+  syncPolicy:
+    automated:                       # automated: ArgoCD syncs automatically without manual clicks
+      prune: true                    # prune: delete cluster resources removed from Git — matches boutique app
+      selfHeal: true                 # selfHeal: revert manual kubectl changes back to Git state
+    syncOptions:
+    - CreateNamespace=true           # CreateNamespace: create the target namespace if missing
+                                     # (harmless here since online-boutique already exists)

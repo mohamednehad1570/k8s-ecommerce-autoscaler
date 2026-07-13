@@ -1,0 +1,13 @@
+
+apiVersion: policy/v1              # policy/v1: the stable API group for PodDisruptionBudget
+kind: PodDisruptionBudget          # kind: this resource type controls voluntary disruptions
+metadata:
+  name: frontend-pdb               # name: unique identifier for this PDB in the namespace
+  namespace: online-boutique       # namespace: must match the pods it protects
+spec:
+  minAvailable: 1                  # minAvailable: always keep at least 1 frontend pod running
+                                   # Kubernetes will refuse voluntary evictions that break this
+  selector:
+    matchLabels:
+      app: frontend                # selector: this PDB applies to pods labeled app=frontend
+                                   # must match the labels on the frontend deployment's pods
