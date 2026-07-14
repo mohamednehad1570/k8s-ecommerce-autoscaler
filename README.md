@@ -5,7 +5,7 @@ Flash Sales) built on Google Kubernetes Engine (GKE).
 
 ## Architecture
 
-- **ML Forecasting**: FastAPI + Prophet predicts traffic spikes from historical data
+- **ML Forecasting**: FastAPI + Holt-Winters (statsmodels) predicts traffic spikes from historical data
 - **Predictive Scaling**: KEDA pre-emptively scales pods before demand lands
 - **Reactive Baseline**: HPA scales pods in response to live CPU/memory metrics
 - **Workload**: Google Online Boutique (11 microservices)
@@ -18,7 +18,7 @@ Flash Sales) built on Google Kubernetes Engine (GKE).
 |---|---|
 | Cloud | GCP / GKE Standard (europe-west1) |
 | Autoscaling | KEDA (predictive) + HPA (reactive baseline) |
-| ML Service | FastAPI + Prophet |
+| ML Service | FastAPI + Holt-Winters (statsmodels) |
 | GitOps | ArgoCD |
 | CI | GitHub Actions → GHCR |
 | Observability | kube-prometheus-stack + Loki |
@@ -32,7 +32,7 @@ Flash Sales) built on Google Kubernetes Engine (GKE).
 ├── kubernetes/         # K8s manifests (managed by ArgoCD)
 │   ├── base/           # Base manifests
 │   └── overlays/prod/  # Production patches
-├── ml-service/         # FastAPI + Prophet prediction service
+├── ml-service/         # FastAPI + Holt-Winters prediction service
 ├── .github/workflows/  # CI pipeline definitions
 └── scripts/            # Helper scripts
 \`\`\`
