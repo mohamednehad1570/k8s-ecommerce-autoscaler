@@ -19,3 +19,5 @@ prometheus-client==0.20.0
 
 # Model serialization — saves/loads trained Prophet model to/from disk
 joblib==1.4.2
+# NumPy 2.0 removed np.float_ which Prophet 1.1.5 still uses internally
+numpy==1.26.4
