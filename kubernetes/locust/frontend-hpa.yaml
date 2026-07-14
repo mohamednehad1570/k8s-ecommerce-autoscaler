@@ -1,0 +1,22 @@
+# HPA for Run 1 (reactive baseline) — applied by run1 script, removed after run
+# Targets 50% CPU utilization across frontend pods
+# min 1, max 5 replicas — same bounds as the KEDA ScaledObject for fair comparison
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: frontend-hpa-baseline
+  namespace: online-boutique
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: frontend              # targets the same frontend Deployment as KEDA
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50  # scale up when average CPU across pods exceeds 50%
