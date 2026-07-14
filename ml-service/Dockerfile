@@ -12,7 +12,7 @@ FROM python:3.11-slim AS builder
 # pkg-config: locates C libraries during compilation
 # rm -rf /var/lib/apt/lists/*: delete apt cache to keep this layer small
 RUN apt-get update && \
-    apt-get install -y build-essential pkg-config && \
+    apt-get install -y --no-install-recommends build-essential=12.9 pkg-config=1.8.1-1 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
