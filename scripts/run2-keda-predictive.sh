@@ -32,7 +32,7 @@ kubectl delete hpa frontend-hpa-baseline -n ${NAMESPACE} --ignore-not-found
 log "HPA absent OK"
 
 log "Step 2/6 - Unsuspending KEDA ScaledObject..."
-kubectl patch scaledobject ${SCALEDOBJECT_NAME} \
+kubectl patch scaledobject frontend-scaledobject cartservice-scaledobject productcatalogservice-scaledobject \
   -n ${NAMESPACE} \
   --type merge \
   -p '{"spec":{"paused":false}}'
@@ -115,7 +115,7 @@ echo ""
 read -p "Press Enter when screenshots are saved..."
 
 log "Cleaning up Run 2..."
-kubectl patch scaledobject ${SCALEDOBJECT_NAME} \
+kubectl patch scaledobject frontend-scaledobject cartservice-scaledobject productcatalogservice-scaledobject \
   -n ${NAMESPACE} \
   --type merge \
   -p '{"spec":{"paused":true}}'

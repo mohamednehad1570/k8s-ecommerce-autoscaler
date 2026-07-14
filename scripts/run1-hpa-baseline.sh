@@ -28,7 +28,7 @@ echo -e "${BLUE}=== Peak users: ${PEAK_USERS} | Duration: ${TOTAL_DURATION}s (10
 echo ""
 
 log "Step 1/6 - Suspending KEDA ScaledObject..."
-kubectl patch scaledobject ${SCALEDOBJECT_NAME} \
+kubectl patch scaledobject frontend-scaledobject cartservice-scaledobject productcatalogservice-scaledobject \
   -n ${NAMESPACE} \
   --type merge \
   -p '{"spec":{"paused":true}}'
@@ -42,7 +42,7 @@ kubectl rollout status deployment/${FRONTEND_DEPLOYMENT} -n ${NAMESPACE} --timeo
 log "Frontend at 1 replica OK"
 
 log "Step 3/6 - Applying HPA (CPU 50% threshold)..."
-kubectl apply -f kubernetes/locust/frontend-hpa.yaml
+kubectl apply -f scripts/manifests/frontend-hpa.yaml
 sleep 10
 log "HPA active OK"
 

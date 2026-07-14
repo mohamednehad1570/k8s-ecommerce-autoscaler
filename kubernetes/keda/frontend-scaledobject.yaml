@@ -41,3 +41,78 @@ spec:
       metricName: predicted_rps
       query: predicted_rps
       threshold: "5"
+---
+# ── cartservice ScaledObject ──────────────────────────────────────────────────
+# Scales cartservice based on CPU usage — same recording rule, different pod filter
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: cartservice-scaledobject
+  namespace: online-boutique
+  labels:
+    app: cartservice
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: cartservice
+  minReplicaCount: 1
+  maxReplicaCount: 8
+  cooldownPeriod: 60
+  pollingInterval: 15
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+      metricName: cartservice_cpu_usage
+      query: sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace="online-boutique",pod=~"cartservice.*"})
+      threshold: "5"
+---
+# ── cartservice PodDisruptionBudget ──────────────────────────────────────────
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cartservice-pdb
+  namespace: online-boutique
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: cartservice
+---
+# ── productcatalogservice ScaledObject ───────────────────────────────────────
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: productcatalogservice-scaledobject
+  namespace: online-boutique
+  labels:
+    app: productcatalogservice
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: productcatalogservice
+  minReplicaCount: 1
+  maxReplicaCount: 8
+  cooldownPeriod: 60
+  pollingInterval: 15
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+      metricName: productcatalogservice_cpu_usage
+      query: sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace="online-boutique",pod=~"productcatalogservice.*"})
+      threshold: "5"
+---
+# ── productcatalogservice PodDisruptionBudget ─────────────────────────────────
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: productcatalogservice-pdb
+  namespace: online-boutique
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: productcatalogservice
