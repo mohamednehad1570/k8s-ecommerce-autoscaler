@@ -11,7 +11,7 @@ spec:
     kind: Deployment
     name: frontend
   minReplicaCount: 1               # always keep 1 pod running — baseline availability
-  maxReplicaCount: 5               # cap at 5 — matches burst-pool capacity
+  maxReplicaCount: 8               # cap at 8 — allows full pre-scaling from predicted_rps
   cooldownPeriod: 60               # wait 60s before scaling back down after load drops
   pollingInterval: 15              # evaluate both triggers every 15 seconds
 
@@ -31,13 +31,13 @@ spec:
   # ── Trigger 2: Predictive (Holt-Winters forecast) ────────────────────────────
   # Reads predicted_rps from Prometheus (scraped from ml-service /metrics).
   # KEDA scales frontend BEFORE load lands — this is the thesis proof.
-  # threshold 20: add 1 replica per 20 predicted RPS
+  # threshold 5: add 1 replica per 5 predicted RPS — aggressive pre-scaling
   # e.g. predicted_rps=37 → ceil(37/20)=2 replicas
   #      predicted_rps=80 → ceil(80/20)=4 replicas
-  #      predicted_rps=120 → 5 replicas (capped at maxReplicaCount)
+  #      predicted_rps=120 → 8 replicas (capped at maxReplicaCount)
   - type: prometheus
     metadata:
       serverAddress: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
       metricName: predicted_rps
       query: predicted_rps
-      threshold: "20"
+      threshold: "5"

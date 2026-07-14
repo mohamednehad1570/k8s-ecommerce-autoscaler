@@ -12,7 +12,7 @@ spec:
     kind: Deployment
     name: frontend              # targets the same frontend Deployment as KEDA
   minReplicas: 1
-  maxReplicas: 5
+  maxReplicas: 8
   metrics:
   - type: Resource
     resource:
