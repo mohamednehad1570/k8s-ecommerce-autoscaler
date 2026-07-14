@@ -1,3 +1,4 @@
+# ── frontend ScaledObject ─────────────────────────────────────────────────────
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
@@ -10,31 +11,17 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: frontend
-  minReplicaCount: 1               # always keep 1 pod running — baseline availability
-  maxReplicaCount: 8               # cap at 8 — allows full pre-scaling from predicted_rps
-  cooldownPeriod: 60               # wait 60s before scaling back down after load drops
-  pollingInterval: 15              # evaluate both triggers every 15 seconds
-
+  minReplicaCount: 1
+  maxReplicaCount: 8
+  cooldownPeriod: 60
+  pollingInterval: 15
   triggers:
-
-  # ── Trigger 1: Reactive (CPU-based) ─────────────────────────────────────────
-  # This is the HPA-equivalent baseline — reacts to load that has ALREADY landed.
-  # Used as the safety net: if prediction misses, CPU still catches the spike.
-  # threshold 0.05: scale up when frontend CPU exceeds 0.05 cores per replica
   - type: prometheus
     metadata:
       serverAddress: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
       metricName: frontend_cpu_usage
       query: sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace="online-boutique",container="server",pod=~"frontend.*"})
       threshold: "0.05"
-
-  # ── Trigger 2: Predictive (Holt-Winters forecast) ────────────────────────────
-  # Reads predicted_rps from Prometheus (scraped from ml-service /metrics).
-  # KEDA scales frontend BEFORE load lands — this is the thesis proof.
-  # threshold 5: add 1 replica per 5 predicted RPS — aggressive pre-scaling
-  # e.g. predicted_rps=37 → ceil(37/20)=2 replicas
-  #      predicted_rps=80 → ceil(80/20)=4 replicas
-  #      predicted_rps=120 → 8 replicas (capped at maxReplicaCount)
   - type: prometheus
     metadata:
       serverAddress: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
@@ -42,8 +29,21 @@ spec:
       query: predicted_rps
       threshold: "5"
 ---
+# ── frontend PodDisruptionBudget ──────────────────────────────────────────────
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: online-boutique
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend
+---
 # ── cartservice ScaledObject ──────────────────────────────────────────────────
-# Scales cartservice based on CPU usage — same recording rule, different pod filter
+# Uses predicted_rps — same Holt-Winters signal as frontend
+# All 3 services pre-scale simultaneously from one forecast
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
@@ -64,8 +64,8 @@ spec:
   - type: prometheus
     metadata:
       serverAddress: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
-      metricName: cartservice_cpu_usage
-      query: sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace="online-boutique",pod=~"cartservice.*"})
+      metricName: predicted_rps
+      query: predicted_rps
       threshold: "5"
 ---
 # ── cartservice PodDisruptionBudget ──────────────────────────────────────────
@@ -81,6 +81,7 @@ spec:
       app: cartservice
 ---
 # ── productcatalogservice ScaledObject ───────────────────────────────────────
+# Uses predicted_rps — same signal, pre-scales with frontend and cartservice
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
@@ -101,8 +102,8 @@ spec:
   - type: prometheus
     metadata:
       serverAddress: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
-      metricName: productcatalogservice_cpu_usage
-      query: sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace="online-boutique",pod=~"productcatalogservice.*"})
+      metricName: predicted_rps
+      query: predicted_rps
       threshold: "5"
 ---
 # ── productcatalogservice PodDisruptionBudget ─────────────────────────────────
