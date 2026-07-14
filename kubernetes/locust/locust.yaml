@@ -1,0 +1,87 @@
+# ConfigMap: stores the locustfile so it can be mounted into the Locust pod
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: locust-script
+  namespace: online-boutique
+data:
+  locustfile.py: |
+    from locust import HttpUser, task, between
+    import random
+
+    PRODUCT_IDS = [
+        "0PUK6V6EV0","1YMWWN1N4O","2ZYFJ3GM2N","66VCHSJNUP",
+        "6E92ZMYYFZ","9SIQT8TOJO","L9ECAV4FNI","LS4PSXUNUM","OLJCESPC7Z",
+    ]
+
+    class OnlineBoutiqueUser(HttpUser):
+        wait_time = between(0.5, 2)
+
+        @task(5)
+        def browse_homepage(self):
+            self.client.get("/", name="Homepage")
+
+        @task(3)
+        def view_product(self):
+            product_id = random.choice(PRODUCT_IDS)
+            self.client.get(f"/product/{product_id}", name="Product Page")
+
+        @task(2)
+        def add_to_cart(self):
+            product_id = random.choice(PRODUCT_IDS)
+            self.client.post("/cart", data={
+                "product_id": product_id,
+                "quantity": random.randint(1, 3)
+            }, name="Add to Cart")
+
+        @task(1)
+        def view_cart(self):
+            self.client.get("/cart", name="View Cart")
+---
+# Deployment: runs Locust in headless mode (no UI needed — we control it via kubectl)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locust
+  namespace: online-boutique
+  labels:
+    app: locust
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: locust
+  template:
+    metadata:
+      labels:
+        app: locust
+    spec:
+      containers:
+      - name: locust
+        image: locustio/locust:2.29.1      # official Locust image, pinned version
+        args:
+        - "-f"
+        - "/locust/locustfile.py"
+        - "--host"
+        - "http://frontend:80"             # target: frontend Service inside the cluster
+        - "--headless"                     # no web UI — controlled via kubectl exec
+        - "--users"
+        - "1"                              # start with 1 user — overridden per run
+        - "--spawn-rate"
+        - "1"
+        ports:
+        - containerPort: 8089              # Locust web UI port (available if needed)
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+        - name: locust-script
+          mountPath: /locust              # mount the ConfigMap as a file at /locust/
+      volumes:
+      - name: locust-script
+        configMap:
+          name: locust-script             # references the ConfigMap above
