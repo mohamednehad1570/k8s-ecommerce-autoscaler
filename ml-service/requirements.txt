@@ -1,9 +1,21 @@
-# Web framework and ASGI server
+
+# Web framework
 fastapi==0.111.0
+
+# ASGI server — runs FastAPI inside the container
 uvicorn[standard]==0.29.0
 
-# Request/response schema validation (FastAPI depends on this)
+# Schema validation (FastAPI dependency)
 pydantic==2.7.1
 
-# HTTP client — used by the HEALTHCHECK curl alternative and future integrations
-httpx==0.27.0
+# Facebook Prophet — time-series forecasting (our ML core)
+prophet==1.1.5
+
+# DataFrame library — required by Prophet for input/output
+pandas==2.2.2
+
+# Prometheus metrics — exposes /metrics so Prometheus scrapes predicted_rps
+prometheus-client==0.20.0
+
+# Model serialization — saves/loads trained Prophet model to/from disk
+joblib==1.4.2

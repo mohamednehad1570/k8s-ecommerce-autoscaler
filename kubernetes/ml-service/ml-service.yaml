@@ -1,0 +1,91 @@
+
+# Three resources in one file — Deployment, Service, ServiceMonitor
+# Deployment: manages the ml-service pod lifecycle
+# Service: makes the pod reachable inside the cluster
+# ServiceMonitor: tells Prometheus to scrape /metrics every 15s
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-service
+  namespace: online-boutique
+  labels:
+    app: ml-service
+spec:
+  replicas: 1                               # 1 replica — Prophet predictor is stateless, 1 is sufficient
+  selector:
+    matchLabels:
+      app: ml-service
+  template:
+    metadata:
+      labels:
+        app: ml-service
+      annotations:
+        prometheus.io/scrape: "true"        # tells Prometheus to scrape this pod
+        prometheus.io/port: "8000"          # which port to scrape
+        prometheus.io/path: "/metrics"      # which path to hit
+    spec:
+      containers:
+      - name: ml-service
+        # Image built by CI (GitHub Actions → GHCR) and pushed on merge to main
+        image: ghcr.io/mohamednehad1570/k8s-ecommerce-autoscaler/ml-service:latest
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: "250m"                     # 0.25 core guaranteed — Prophet inference is light at runtime
+            memory: "512Mi"                 # Stan model loads ~300MB; 512Mi gives comfortable headroom
+          limits:
+            cpu: "1000m"                    # cap at 1 core — prevents noisy-neighbour on workload-pool
+            memory: "1Gi"                   # hard ceiling
+        # livenessProbe: restart pod if /health fails 3 times
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60           # Prophet model load + Stan init takes ~30-45s
+          periodSeconds: 15
+          failureThreshold: 3
+        # readinessProbe: hold traffic until model is loaded and /health passes
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          failureThreshold: 3
+        env:
+        - name: MODEL_PATH
+          value: "model/prophet_model.joblib"   # path to the model baked into the image
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-service
+  namespace: online-boutique
+  labels:
+    app: ml-service
+spec:
+  selector:
+    app: ml-service                         # routes to pods with label app=ml-service
+  ports:
+  - name: http                              # port name — referenced by ServiceMonitor below
+    port: 8000
+    targetPort: 8000
+  type: ClusterIP                           # internal-only — no external IP needed
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ml-service-monitor
+  namespace: online-boutique
+  labels:
+    release: kube-prometheus-stack          # must match Prometheus Operator serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app: ml-service                       # which Service to monitor
+  endpoints:
+  - port: http                              # matches Service port name above
+    path: /metrics                          # Prometheus scrape path
+    interval: 15s                           # scrape every 15 seconds

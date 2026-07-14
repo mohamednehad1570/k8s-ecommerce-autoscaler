@@ -1,79 +1,105 @@
-# ml-service/main.py
-# Placeholder FastAPI service for the Prophet-based prediction engine.
-# Phase 8 will replace the /predict stub with real Prophet forecasting logic.
-# Production-shaped: health probes, structured schemas, proper HTTP status codes.
-# =============================================================================
 
-from fastapi import FastAPI, HTTPException  # FastAPI: web framework; HTTPException: structured error responses
-from pydantic import BaseModel              # BaseModel: defines and validates request/response data shapes
-from datetime import datetime               # datetime: generates UTC timestamps for responses
-import os                                   # os: read environment variables for runtime config
+"""
+main.py — FastAPI prediction service (runtime).
+Loads the pre-trained Prophet model baked into the image by train.py at build time.
+Serves:
+  GET /health   — liveness + readiness probe (Kubernetes)
+  GET /predict  — returns predicted RPS for the next N minutes
+  GET /metrics  — Prometheus text format; exposes predicted_rps Gauge for KEDA
+"""
 
-# ---------------------------------------------------------------------------
-# App initialisation
-# ---------------------------------------------------------------------------
+import joblib                               # joblib: deserialize Prophet model from disk
+import pandas as pd                         # pandas: required by Prophet for DataFrames
+from fastapi import FastAPI                 # FastAPI: web framework
+from prometheus_client import (
+    Gauge,                                  # Gauge: metric type whose value can go up or down
+    generate_latest,                        # generate_latest: renders all metrics as Prometheus text
+    CONTENT_TYPE_LATEST                     # CONTENT_TYPE_LATEST: correct HTTP Content-Type header
+)
+from starlette.responses import Response    # Response: returns raw text with custom Content-Type
+from datetime import datetime, timedelta    # datetime: builds Prophet's future timestamp DataFrame
+import os                                   # os: reads MODEL_PATH environment variable
+
+# ── App initialisation ────────────────────────────────────────────────────────
 app = FastAPI(
-    title="ML Prediction Service",          # title: appears in auto-generated /docs Swagger UI
+    title="ML Prediction Service",
     description="Prophet-based traffic forecasting for KEDA predictive autoscaling",
-    version="0.1.0",                        # 0.x = pre-release; bump to 1.0.0 when Prophet is integrated
+    version="1.0.0",
 )
 
-# ---------------------------------------------------------------------------
-# Request / Response schemas
-# Pydantic validates incoming JSON against these automatically.
-# If a request doesn't match the schema, FastAPI returns 422 before your code runs.
-# ---------------------------------------------------------------------------
-class PredictRequest(BaseModel):
-    horizon_minutes: int = 30              # how many minutes ahead to forecast; default 30
+# ── Load pre-trained model at startup ─────────────────────────────────────────
+# Runs once when the pod starts — not on every request.
+# The model file was baked into the Docker image by train.py during docker build.
+# os.getenv: reads the env var; falls back to the default path if not set
+MODEL_PATH = os.getenv("MODEL_PATH", "model/prophet_model.joblib")
+print(f"Loading Prophet model from {MODEL_PATH}...")
+model = joblib.load(MODEL_PATH)             # deserialize the binary model file into memory
+print("Model loaded successfully.")
 
-class PredictResponse(BaseModel):
-    predicted_replicas: int                # pod replica count KEDA should scale to
-    confidence: float                      # forecast confidence 0.0-1.0; 0.0 = stub placeholder
-    forecast_timestamp: str                # ISO-8601 UTC timestamp of when forecast was generated
-    horizon_minutes: int                   # echoed back so the caller can confirm what was requested
+# ── Prometheus Gauge ──────────────────────────────────────────────────────────
+# 'predicted_rps': the metric name Prometheus scrapes and KEDA queries
+# This single Gauge is the bridge between Prophet and KEDA
+predicted_rps_gauge = Gauge(
+    'predicted_rps',
+    'Predicted requests per second for the next forecast window (Prophet)'
+)
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
+# ── /health — liveness + readiness probe ─────────────────────────────────────
+# Kubernetes calls this on a schedule via livenessProbe and readinessProbe.
+# Returns 200 as long as the pod is alive and the model is loaded.
+@app.get("/health")
+def health():
+    return {"status": "ok", "model_loaded": model is not None}
 
-# /healthz — Kubernetes liveness probe
-# kubelet calls this on a schedule; non-200 response triggers pod restart
-@app.get("/healthz")
-def healthz():
-    return {"status": "ok"}
+# ── /predict — core forecasting endpoint ─────────────────────────────────────
+# Query param `minutes`: how far ahead to forecast (default: 30 minutes)
+# Returns mean predicted RPS across that window and updates the Prometheus Gauge.
+@app.get("/predict")
+def predict(minutes: int = 30):
+    # Build future DataFrame: Prophet requires a 'ds' column of future timestamps
+    now = datetime.utcnow()
+    # pd.date_range: generates evenly-spaced timestamps
+    # freq="1min": one point per minute
+    # periods=minutes: total number of future points
+    future_df = pd.DataFrame({
+        'ds': pd.date_range(start=now, periods=minutes, freq="1min")
+    })
 
-# /readyz — Kubernetes readiness probe
-# kubelet calls this before sending traffic; non-200 keeps pod out of rotation
-# In Phase 8: return 503 here if the Prophet model hasn't loaded yet
-@app.get("/readyz")
-def readyz():
-    return {"status": "ready"}
+    # model.predict(): runs the trained model on future timestamps
+    # Returns DataFrame with: ds, yhat (mean forecast), yhat_lower, yhat_upper
+    forecast = model.predict(future_df)
 
-# /predict — main KEDA integration endpoint
-# KEDA external scaler POSTs here; response tells it how many replicas to provision
-# Phase 8 replaces the stub values with real Prophet model inference
-@app.post("/predict", response_model=PredictResponse)
-def predict(req: PredictRequest):
-    # Validate input — horizon must be a positive integer
-    if req.horizon_minutes <= 0:
-        # HTTPException: FastAPI serialises this as structured JSON error response
-        # status_code=422: Unprocessable Entity — semantically correct for invalid input
-        raise HTTPException(
-            status_code=422,
-            detail="horizon_minutes must be a positive integer"
-        )
+    # Extract mean predicted RPS across the forecast window
+    # 'yhat': Prophet's column name for the point forecast
+    mean_prediction = float(forecast['yhat'].mean())
 
-    # --- STUB: replace entirely with Prophet inference in Phase 8 ---
-    stub_replicas = 3                      # hardcoded placeholder — not a real forecast
-    stub_confidence = 0.0                  # 0.0 explicitly signals this is a stub
-    # --- end stub ---
+    # Clamp to zero — Prophet can produce slightly negative values at low-traffic periods
+    mean_prediction = max(0.0, mean_prediction)
 
-    return PredictResponse(
-        predicted_replicas=stub_replicas,
-        confidence=stub_confidence,
-        # datetime.utcnow(): current time in UTC (no timezone offset)
-        # .isoformat(): formats as "2026-07-08T13:45:00.123456"
-        # + "Z": appends UTC timezone marker (Z = Zulu = UTC in ISO-8601)
-        forecast_timestamp=datetime.utcnow().isoformat() + "Z",
-        horizon_minutes=req.horizon_minutes,
+    # Update the Gauge — KEDA reads this value via PromQL query on Prometheus
+    predicted_rps_gauge.set(mean_prediction)
+
+    return {
+        "forecast_minutes": minutes,
+        "predicted_rps": mean_prediction,
+        "forecast_start": now.isoformat(),
+        "forecast_end": (now + timedelta(minutes=minutes)).isoformat(),
+    }
+
+# ── /metrics — Prometheus scrape endpoint ────────────────────────────────────
+# Prometheus (via ServiceMonitor) hits this every 15s.
+# Returns all registered Gauges/Counters in Prometheus text exposition format.
+@app.get("/metrics")
+def metrics():
+    return Response(
+        content=generate_latest(),          # renders all metrics as UTF-8 text
+        media_type=CONTENT_TYPE_LATEST      # "text/plain; version=0.0.4; charset=utf-8"
     )
+
+# ── Startup: prime the Gauge before first Prometheus scrape ──────────────────
+# Without this the Gauge is 0 on startup — KEDA would see no signal for ~15s.
+@app.on_event("startup")
+async def startup_event():
+    print("Priming prediction gauge on startup...")
+    predict(minutes=30)                     # warm-up forecast: 30 minutes ahead
+    print("Initial predicted_rps gauge primed.")
