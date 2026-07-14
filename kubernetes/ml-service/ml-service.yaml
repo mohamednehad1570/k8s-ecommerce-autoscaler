@@ -56,7 +56,7 @@ spec:
           failureThreshold: 3
         env:
         - name: MODEL_PATH
-          value: "model/prophet_model.joblib"   # path to the model baked into the image
+          value: "model/hw_model.joblib"   # path to the model baked into the image
 ---
 apiVersion: v1
 kind: Service

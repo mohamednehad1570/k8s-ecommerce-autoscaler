@@ -1,23 +1,9 @@
-
-# Web framework
 fastapi==0.111.0
-
-# ASGI server — runs FastAPI inside the container
 uvicorn[standard]==0.29.0
-
-# Schema validation (FastAPI dependency)
 pydantic==2.7.1
-
-# Facebook Prophet — time-series forecasting (our ML core)
-prophet==1.1.5
-
-# DataFrame library — required by Prophet for input/output
-pandas==2.2.2
-
-# Prometheus metrics — exposes /metrics so Prometheus scrapes predicted_rps
-prometheus-client==0.20.0
-
-# Model serialization — saves/loads trained Prophet model to/from disk
-joblib==1.4.2
-# NumPy 2.0 removed np.float_ which Prophet 1.1.5 still uses internally
+statsmodels==0.14.2
 numpy==1.26.4
+pandas==2.2.2
+scipy==1.13.1
+prometheus-client==0.20.0
+joblib==1.4.2
