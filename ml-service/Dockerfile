@@ -1,56 +1,54 @@
-
-# Single-stage build for FastAPI + Prophet prediction service.
-# Multi-stage was abandoned: Prophet's Stan backend uses dynamic module discovery
-# that breaks when packages are installed to a non-standard --target directory.
-# Single-stage with non-root user still meets security requirements for this thesis.
+# FastAPI + Prophet prediction service
+# Key design decision: CmdStan is installed to /opt/cmdstan (world-readable)
+# and CMDSTAN env var is set so Prophet finds it regardless of which user runs it.
+# This fixes the 'stan_backend' AttributeError caused by CmdStan being installed
+# to ~/.cmdstan (root's home) but the app running as a non-root user at runtime.
 
 FROM python:3.11-slim
 
-# Prophet requires gcc/g++ to compile its Stan backend during pip install
-# --no-install-recommends: skip suggested packages to keep image smaller
+# Build tools required by Prophet's Stan backend compilation
 # hadolint ignore=DL3008
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends build-essential pkg-config && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        pkg-config \
+        wget \
+        curl && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Non-root user — security best practice, limits blast radius if compromised
-RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
-
-# Copy and install dependencies first — Docker layer cache benefit:
-# if requirements.txt unchanged, pip install layer is reused on next build
+# Install Python dependencies first — layer cache: unchanged = skipped on rebuild
 COPY requirements.txt .
-
-# Install to system Python (no --target) — required for Prophet's Stan backend
-# to locate its modules correctly via dynamic import
-# --no-cache-dir: don't store pip download cache in the image layer
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy training script and run AT BUILD TIME — bakes trained model into image
-# Zero cold-start delay at runtime: pod loads pre-trained model instantly
+# Install CmdStan to a FIXED, world-readable path /opt/cmdstan.
+# Default behaviour installs to ~/.cmdstan (root-only), which breaks
+# when the container runs as a non-root user (appuser).
+# Setting CMDSTAN env var here makes it permanent for all subsequent RUN steps
+# and for the runtime container.
+ENV CMDSTAN=/opt/cmdstan
+RUN python -c "import cmdstanpy; cmdstanpy.install_cmdstan(dir='/opt/cmdstan')" && \
+    chmod -R 755 /opt/cmdstan
+
+# Copy training script and train the model AT BUILD TIME.
+# Model is serialized to disk and baked into the image.
 COPY train.py .
 RUN python train.py
 
-# Copy FastAPI application — after train.py so editing main.py
-# doesn't invalidate the pip install or training layers
+# Copy FastAPI application
 COPY main.py .
 
-# PYTHONDONTWRITEBYTECODE: skip .pyc files — no benefit in containers
 ENV PYTHONDONTWRITEBYTECODE=1
-
-# PYTHONUNBUFFERED: logs appear immediately — critical for live debugging
 ENV PYTHONUNBUFFERED=1
 
-# Switch to non-root user for runtime
+# Non-root user — AFTER CmdStan is installed to /opt (world-readable)
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 USER appuser
 
 EXPOSE 8000
 
-# HEALTHCHECK: /health matches the endpoint in main.py
-# start-period=90s: Prophet + Stan init can take up to 60s on first load
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-# 1 worker: Prophet model is memory-heavy; multiple workers multiply RAM for no gain
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
