@@ -1,6 +1,8 @@
 #!/bin/bash
 # run1-hpa-baseline.sh — Phase 9 Run 1: Reactive HPA baseline (3 services)
-# Usage: bash scripts/run1-hpa-baseline.sh
+# FIXED: uses the correct KEDA pause annotation (autoscaling.keda.sh/paused)
+# instead of the non-existent spec.paused field, and verifies the pause
+# actually took effect before proceeding — no silent failures.
 set -e
 
 GREEN='\033[0;32m'
@@ -11,8 +13,10 @@ NC='\033[0m'
 
 log() { echo -e "${GREEN}[$(date '+%H:%M:%S')]${NC} $1"; }
 warn() { echo -e "${YELLOW}[$(date '+%H:%M:%S')]${NC} $1"; }
+fail() { echo -e "${RED}[$(date '+%H:%M:%S')] FATAL: $1${NC}"; exit 1; }
 
 NAMESPACE="online-boutique"
+SERVICES="frontend-scaledobject cartservice-scaledobject productcatalogservice-scaledobject"
 PEAK_USERS=200
 SPAWN_RATE=3
 RAMP_DURATION=180
@@ -30,20 +34,32 @@ kubectl delete hpa frontend-hpa-baseline cartservice-hpa-baseline \
 sleep 5
 log "HPAs clean OK"
 
-log "Step 2/7 - Suspending all 3 KEDA ScaledObjects..."
-kubectl patch scaledobject frontend-scaledobject \
-  -n ${NAMESPACE} --type merge -p '{"spec":{"paused":true}}'
-kubectl patch scaledobject cartservice-scaledobject \
-  -n ${NAMESPACE} --type merge -p '{"spec":{"paused":true}}'
-kubectl patch scaledobject productcatalogservice-scaledobject \
-  -n ${NAMESPACE} --type merge -p '{"spec":{"paused":true}}'
+log "Step 2/7 - Suspending all 3 KEDA ScaledObjects (annotation-based)..."
+for so in ${SERVICES}; do
+  kubectl annotate scaledobject ${so} -n ${NAMESPACE} \
+    autoscaling.keda.sh/paused="true" --overwrite
+done
 sleep 10
+
+# HARD VERIFICATION — this is the fix for the silent-failure bug.
+# We read back the annotation from the live cluster and refuse to proceed
+# unless every single ScaledObject actually shows paused=true.
+log "Verifying pause took effect on all 3 ScaledObjects..."
+for so in ${SERVICES}; do
+  STATE=$(kubectl get scaledobject ${so} -n ${NAMESPACE} \
+    -o jsonpath='{.metadata.annotations.autoscaling\.keda\.sh/paused}')
+  if [ "${STATE}" != "true" ]; then
+    fail "${so} is NOT paused (annotation reads '${STATE}'). Aborting before Run 1 is corrupted."
+  fi
+  log "  ${so}: paused=true CONFIRMED"
+done
+
 kubectl delete hpa keda-hpa-frontend-scaledobject \
   keda-hpa-cartservice-scaledobject \
   keda-hpa-productcatalogservice-scaledobject \
   -n ${NAMESPACE} --ignore-not-found
 sleep 5
-log "KEDA suspended OK"
+log "KEDA genuinely suspended OK"
 
 log "Step 3/7 - Scaling all 3 services to 1 replica..."
 kubectl scale deployment frontend cartservice productcatalogservice \
@@ -78,6 +94,7 @@ kubectl exec -n ${NAMESPACE} ${LOCUST_POD} -- \
   --users ${PEAK_USERS} \
   --spawn-rate ${SPAWN_RATE} \
   --run-time ${TOTAL_DURATION}s \
+  --csv /tmp/run1 \
   --only-summary &
 
 LOCUST_PID=$!
@@ -125,5 +142,5 @@ kubectl delete hpa frontend-hpa-baseline cartservice-hpa-baseline \
   productcatalogservice-hpa-baseline -n ${NAMESPACE} --ignore-not-found
 kubectl scale deployment frontend cartservice productcatalogservice \
   -n ${NAMESPACE} --replicas=1
-warn "KEDA remains suspended. Run run2-keda-predictive.sh next."
+warn "KEDA remains genuinely suspended (verified). Run run2-keda-predictive.sh next."
 log "Run 1 complete."

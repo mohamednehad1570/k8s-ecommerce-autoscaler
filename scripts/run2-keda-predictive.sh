@@ -1,6 +1,9 @@
+
 #!/bin/bash
 # run2-keda-predictive.sh — Phase 9 Run 2: KEDA predictive (3 services)
-# Usage: bash scripts/run2-keda-predictive.sh
+# FIXED: uses the correct KEDA pause annotation (autoscaling.keda.sh/paused)
+# instead of the non-existent spec.paused field, and verifies the unpause
+# actually took effect before starting Locust — no silent failures.
 set -e
 
 GREEN='\033[0;32m'
@@ -11,8 +14,10 @@ NC='\033[0m'
 
 log() { echo -e "${GREEN}[$(date '+%H:%M:%S')]${NC} $1"; }
 warn() { echo -e "${YELLOW}[$(date '+%H:%M:%S')]${NC} $1"; }
+fail() { echo -e "${RED}[$(date '+%H:%M:%S')] FATAL: $1${NC}"; exit 1; }
 
 NAMESPACE="online-boutique"
+SERVICES="frontend-scaledobject cartservice-scaledobject productcatalogservice-scaledobject"
 PEAK_USERS=200
 SPAWN_RATE=3
 RAMP_DURATION=180
@@ -30,15 +35,25 @@ kubectl delete hpa frontend-hpa-baseline cartservice-hpa-baseline \
 sleep 5
 log "HPAs absent OK"
 
-log "Step 2/6 - Unsuspending all 3 KEDA ScaledObjects..."
-kubectl patch scaledobject frontend-scaledobject \
-  -n ${NAMESPACE} --type merge -p '{"spec":{"paused":false}}'
-kubectl patch scaledobject cartservice-scaledobject \
-  -n ${NAMESPACE} --type merge -p '{"spec":{"paused":false}}'
-kubectl patch scaledobject productcatalogservice-scaledobject \
-  -n ${NAMESPACE} --type merge -p '{"spec":{"paused":false}}'
+log "Step 2/6 - Unsuspending all 3 KEDA ScaledObjects (annotation-based)..."
+for so in ${SERVICES}; do
+  kubectl annotate scaledobject ${so} -n ${NAMESPACE} \
+    autoscaling.keda.sh/paused="false" --overwrite
+done
 sleep 15
-log "KEDA active OK"
+
+# HARD VERIFICATION — refuse to start Locust unless every ScaledObject
+# genuinely reports paused=false. This is what was missing before, and
+# it's why frontend/cartservice silently stayed reactive last time.
+log "Verifying unpause took effect on all 3 ScaledObjects..."
+for so in ${SERVICES}; do
+  STATE=$(kubectl get scaledobject ${so} -n ${NAMESPACE} \
+    -o jsonpath='{.metadata.annotations.autoscaling\.keda\.sh/paused}')
+  if [ "${STATE}" != "false" ]; then
+    fail "${so} is NOT active (annotation reads '${STATE}'). Aborting before Run 2 is corrupted."
+  fi
+  log "  ${so}: paused=false CONFIRMED (active)"
+done
 
 log "Step 3/6 - Waiting 90s for KEDA to pre-scale all 3 services..."
 warn "Watch Grafana Panel 1 - all 3 services should scale up BEFORE load"
@@ -53,8 +68,28 @@ for i in $(seq 1 9); do
   log "  [${i}0s] frontend=${F} cartservice=${C} productcatalog=${P}"
 done
 
+# SECOND HARD VERIFICATION — confirm all 3 actually reached target replica
+# count before we claim "pre-scaled" and start the load test. If any
+# service is still stuck at 1, we stop rather than run a corrupted test.
+F_FINAL=$(kubectl get deployment frontend -n ${NAMESPACE} -o jsonpath='{.status.readyReplicas}')
+C_FINAL=$(kubectl get deployment cartservice -n ${NAMESPACE} -o jsonpath='{.status.readyReplicas}')
+P_FINAL=$(kubectl get deployment productcatalogservice -n ${NAMESPACE} -o jsonpath='{.status.readyReplicas}')
+
+if [ "${F_FINAL}" -lt 5 ] || [ "${C_FINAL}" -lt 5 ] || [ "${P_FINAL}" -lt 5 ]; then
+  warn "Pre-scaling incomplete: frontend=${F_FINAL} cartservice=${C_FINAL} productcatalog=${P_FINAL}"
+  warn "Expected all >=5. Waiting an extra 30s before deciding..."
+  sleep 30
+  F_FINAL=$(kubectl get deployment frontend -n ${NAMESPACE} -o jsonpath='{.status.readyReplicas}')
+  C_FINAL=$(kubectl get deployment cartservice -n ${NAMESPACE} -o jsonpath='{.status.readyReplicas}')
+  P_FINAL=$(kubectl get deployment productcatalogservice -n ${NAMESPACE} -o jsonpath='{.status.readyReplicas}')
+  if [ "${F_FINAL}" -lt 5 ] || [ "${C_FINAL}" -lt 5 ] || [ "${P_FINAL}" -lt 5 ]; then
+    fail "Pre-scaling still incomplete after extra wait: frontend=${F_FINAL} cartservice=${C_FINAL} productcatalog=${P_FINAL}. Aborting rather than run invalid test."
+  fi
+fi
+
 echo ""
-warn "KEY METRIC: All 3 services pre-scaled BEFORE load arrives"
+log "PRE-SCALE CONFIRMED: frontend=${F_FINAL} cartservice=${C_FINAL} productcatalog=${P_FINAL}"
+warn "KEY METRIC: all 3 services pre-scaled BEFORE load arrives"
 warn "Run 1 started all at 1 replica - this difference is your thesis evidence"
 echo ""
 
@@ -76,6 +111,7 @@ kubectl exec -n ${NAMESPACE} ${LOCUST_POD} -- \
   --users ${PEAK_USERS} \
   --spawn-rate ${SPAWN_RATE} \
   --run-time ${TOTAL_DURATION}s \
+  --csv /tmp/run2 \
   --only-summary &
 
 LOCUST_PID=$!
@@ -119,13 +155,17 @@ echo ""
 read -p "Press Enter when screenshots saved..."
 
 log "Step 6/6 - Cleaning up..."
-kubectl patch scaledobject frontend-scaledobject \
-  -n ${NAMESPACE} --type merge -p '{"spec":{"paused":true}}'
-kubectl patch scaledobject cartservice-scaledobject \
-  -n ${NAMESPACE} --type merge -p '{"spec":{"paused":true}}'
-kubectl patch scaledobject productcatalogservice-scaledobject \
-  -n ${NAMESPACE} --type merge -p '{"spec":{"paused":true}}'
+for so in ${SERVICES}; do
+  kubectl annotate scaledobject ${so} -n ${NAMESPACE} \
+    autoscaling.keda.sh/paused="true" --overwrite
+done
+sleep 10
+for so in ${SERVICES}; do
+  STATE=$(kubectl get scaledobject ${so} -n ${NAMESPACE} \
+    -o jsonpath='{.metadata.annotations.autoscaling\.keda\.sh/paused}')
+  log "  ${so}: paused=${STATE}"
+done
 kubectl scale deployment frontend cartservice productcatalogservice \
   -n ${NAMESPACE} --replicas=1
-log "All KEDA ScaledObjects re-suspended. All services at 1 replica."
+log "All KEDA ScaledObjects re-suspended (verified). All services at 1 replica."
 log "Run gke-stop to stop billing."
