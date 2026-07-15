@@ -1,36 +1,1142 @@
-# ─────────────────────────────────────────────────────────────────────────────
 # Grafana Dashboard ConfigMap — Phase 9: Predictive vs Reactive Autoscaling
-#
-# PURPOSE: Git-backed dashboard that survives pod restarts, PVC loss, and
-#          Helm reinstalls. ArgoCD deploys this; Grafana sidecar auto-loads it.
-#
-# HOW IT WORKS:
-#   1. Commit this file to: kubernetes/overlays/prod/monitoring/
-#   2. ArgoCD detects the change and applies it to the monitoring namespace
-#   3. Grafana sidecar (grafana-sc-dashboard container) detects label
-#      grafana_dashboard="1" and mounts the JSON as a live dashboard
-#   4. Dashboard appears immediately in Grafana UI under tag "phase9"
-#   5. On every gke-start + ArgoCD sync, dashboard is guaranteed present
-#
-# PANELS (7 total — each has 4 queries: per service x3 + combined):
-#   1. Desired Replica Count
-#   2. Ready Replicas / Scaling Lag Indicator
-#   3. CPU Usage in Cores
-#   4. Memory Working Set
-#   5. Network Transmit Bytes/s
-#   6. Spec Replicas / Autoscaler Decision Timeline
-#   7. ML Predicted RPS + KEDA Trigger Thresholds
-# ─────────────────────────────────────────────────────────────────────────────
-
-apiVersion: v1       # apiVersion: core Kubernetes API — ConfigMap is a v1 core resource
-kind: ConfigMap      # kind: ConfigMap stores non-confidential key-value data
+# FIXED: Panel 3 CPU and Panel 4 Memory use pod label (GKE cAdvisor does not emit container label)
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: phase9-autoscaling-dashboard   # name: unique identifier within the namespace
-  namespace: monitoring                 # namespace: must match Grafana's deployment namespace
+  name: phase9-autoscaling-dashboard
+  namespace: monitoring
   labels:
-    grafana_dashboard: "1"             # label: Grafana sidecar watches for exactly this label
-                                       #        string "1" not boolean — must be quoted
+    grafana_dashboard: "1"
 data:
-  # filename key must end in .json — sidecar only mounts .json files as dashboards
   phase9-autoscaling.json: |
-    {"annotations": {"list": [{"builtIn": 1, "datasource": {"type": "grafana", "uid": "-- Grafana --"}, "enable": true, "hide": true, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard"}]}, "description": "Phase 9 \u2014 Predictive (KEDA + Holt-Winters) vs Reactive (HPA) autoscaling. Each panel shows frontend, cartservice, productcatalogservice, and their combined total.", "editable": true, "fiscalYearStartMonth": 0, "graphTooltip": 1, "id": null, "links": [], "panels": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"lineWidth": 2, "fillOpacity": 8}, "unit": "short", "min": 0}, "overrides": [{"matcher": {"id": "byName", "options": "frontend"}, "properties": [{"id": "color", "value": {"fixedColor": "#73BF69", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "cartservice"}, "properties": [{"id": "color", "value": {"fixedColor": "#F2CC0C", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "productcatalogservice"}, "properties": [{"id": "color", "value": {"fixedColor": "#FF9830", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "ALL 3 combined"}, "properties": [{"id": "color", "value": {"fixedColor": "#FF5733", "mode": "fixed"}}, {"id": "custom.lineWidth", "value": 3}, {"id": "custom.lineStyle", "value": {"dash": [8, 4], "fill": "dash"}}]}]}, "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0}, "id": 1, "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}}, "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "kube_deployment_status_replicas{namespace=\"online-boutique\", deployment=\"frontend\"}", "legendFormat": "frontend", "refId": "A"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "kube_deployment_status_replicas{namespace=\"online-boutique\", deployment=\"cartservice\"}", "legendFormat": "cartservice", "refId": "B"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "kube_deployment_status_replicas{namespace=\"online-boutique\", deployment=\"productcatalogservice\"}", "legendFormat": "productcatalogservice", "refId": "C"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(kube_deployment_status_replicas{namespace=\"online-boutique\", deployment=~\"frontend|cartservice|productcatalogservice\"})", "legendFormat": "ALL 3 combined", "refId": "D"}], "title": "Panel 1 \u2014 Desired Replica Count (per service + combined)", "description": "Desired replicas for each of the 3 autoscaled services plus their combined total. Run 1 (HPA): replicas climb reactively after CPU threshold is breached. Run 2 (KEDA): replicas pre-scale before Locust ramps up. The combined line shows total pod capacity across all 3 services.", "type": "timeseries"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"lineWidth": 2, "fillOpacity": 8}, "unit": "short", "min": 0}, "overrides": [{"matcher": {"id": "byName", "options": "frontend ready"}, "properties": [{"id": "color", "value": {"fixedColor": "#73BF69", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "cartservice ready"}, "properties": [{"id": "color", "value": {"fixedColor": "#F2CC0C", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "productcatalogservice ready"}, "properties": [{"id": "color", "value": {"fixedColor": "#FF9830", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "ALL 3 ready combined"}, "properties": [{"id": "color", "value": {"fixedColor": "#FF5733", "mode": "fixed"}}, {"id": "custom.lineWidth", "value": 3}, {"id": "custom.lineStyle", "value": {"dash": [8, 4], "fill": "dash"}}]}]}, "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}, "id": 2, "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}}, "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "kube_deployment_status_replicas_ready{namespace=\"online-boutique\", deployment=\"frontend\"}", "legendFormat": "frontend ready", "refId": "A"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "kube_deployment_status_replicas_ready{namespace=\"online-boutique\", deployment=\"cartservice\"}", "legendFormat": "cartservice ready", "refId": "B"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "kube_deployment_status_replicas_ready{namespace=\"online-boutique\", deployment=\"productcatalogservice\"}", "legendFormat": "productcatalogservice ready", "refId": "C"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(kube_deployment_status_replicas_ready{namespace=\"online-boutique\", deployment=~\"frontend|cartservice|productcatalogservice\"})", "legendFormat": "ALL 3 ready combined", "refId": "D"}], "title": "Panel 2 \u2014 Ready Replicas / Scaling Lag Indicator (per service + combined)", "description": "Ready replicas only \u2014 pods that have passed readiness probes and are actually serving traffic. The gap between Panel 1 (desired) and Panel 2 (ready) during Run 1 (HPA) is the scaling lag \u2014 the window where your application is under-provisioned. In Run 2 (KEDA) this gap should be near zero because pods are already ready before load lands.", "type": "timeseries"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"lineWidth": 2, "fillOpacity": 8}, "unit": "cores", "min": 0}, "overrides": [{"matcher": {"id": "byName", "options": "frontend CPU"}, "properties": [{"id": "color", "value": {"fixedColor": "#73BF69", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "cartservice CPU"}, "properties": [{"id": "color", "value": {"fixedColor": "#F2CC0C", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "productcatalogservice CPU"}, "properties": [{"id": "color", "value": {"fixedColor": "#FF9830", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "ALL 3 total CPU"}, "properties": [{"id": "color", "value": {"fixedColor": "#FF5733", "mode": "fixed"}}, {"id": "custom.lineWidth", "value": 3}, {"id": "custom.lineStyle", "value": {"dash": [8, 4], "fill": "dash"}}]}]}, "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}, "id": 3, "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}}, "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"online-boutique\", container=\"frontend\"}[1m]))", "legendFormat": "frontend CPU", "refId": "A"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"online-boutique\", container=\"cartservice\"}[1m]))", "legendFormat": "cartservice CPU", "refId": "B"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"online-boutique\", container=\"productcatalogservice\"}[1m]))", "legendFormat": "productcatalogservice CPU", "refId": "C"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"online-boutique\", container=~\"frontend|cartservice|productcatalogservice\"}[1m]))", "legendFormat": "ALL 3 total CPU", "refId": "D"}], "title": "Panel 3 \u2014 CPU Usage in Cores (per service + combined)", "description": "CPU consumption rate per service plus combined total. In Run 1 (HPA) the combined line spikes sharply because all 3 services are under-replicated while HPA waits for the threshold to be breached. In Run 2 (KEDA) the curve is flatter per pod because load is distributed across pre-scaled replicas.", "type": "timeseries"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"lineWidth": 2, "fillOpacity": 8}, "unit": "bytes", "min": 0}, "overrides": [{"matcher": {"id": "byName", "options": "frontend memory"}, "properties": [{"id": "color", "value": {"fixedColor": "#73BF69", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "cartservice memory"}, "properties": [{"id": "color", "value": {"fixedColor": "#F2CC0C", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "productcatalogservice memory"}, "properties": [{"id": "color", "value": {"fixedColor": "#FF9830", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "ALL 3 total memory"}, "properties": [{"id": "color", "value": {"fixedColor": "#FF5733", "mode": "fixed"}}, {"id": "custom.lineWidth", "value": 3}, {"id": "custom.lineStyle", "value": {"dash": [8, 4], "fill": "dash"}}]}]}, "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24}, "id": 4, "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}}, "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(container_memory_working_set_bytes{namespace=\"online-boutique\", container=\"frontend\"})", "legendFormat": "frontend memory", "refId": "A"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(container_memory_working_set_bytes{namespace=\"online-boutique\", container=\"cartservice\"})", "legendFormat": "cartservice memory", "refId": "B"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(container_memory_working_set_bytes{namespace=\"online-boutique\", container=\"productcatalogservice\"})", "legendFormat": "productcatalogservice memory", "refId": "C"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(container_memory_working_set_bytes{namespace=\"online-boutique\", container=~\"frontend|cartservice|productcatalogservice\"})", "legendFormat": "ALL 3 total memory", "refId": "D"}], "title": "Panel 4 \u2014 Memory Working Set in Bytes (per service + combined)", "description": "Working set memory per service plus combined total. Memory scales linearly with replica count \u2014 more replicas means more memory consumed. Confirms workload isolation: memory stays within workload-pool bounds and never bleeds into default-pool where platform services run.", "type": "timeseries"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"lineWidth": 2, "fillOpacity": 8}, "unit": "Bps", "min": 0}, "overrides": [{"matcher": {"id": "byName", "options": "frontend TX"}, "properties": [{"id": "color", "value": {"fixedColor": "#73BF69", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "cartservice TX"}, "properties": [{"id": "color", "value": {"fixedColor": "#F2CC0C", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "productcatalogservice TX"}, "properties": [{"id": "color", "value": {"fixedColor": "#FF9830", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "ALL 3 TX combined"}, "properties": [{"id": "color", "value": {"fixedColor": "#FF5733", "mode": "fixed"}}, {"id": "custom.lineWidth", "value": 3}, {"id": "custom.lineStyle", "value": {"dash": [8, 4], "fill": "dash"}}]}]}, "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32}, "id": 5, "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}}, "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"online-boutique\", pod=~\"frontend-.*\"}[1m]))", "legendFormat": "frontend TX", "refId": "A"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"online-boutique\", pod=~\"cartservice-.*\"}[1m]))", "legendFormat": "cartservice TX", "refId": "B"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"online-boutique\", pod=~\"productcatalogservice-.*\"}[1m]))", "legendFormat": "productcatalogservice TX", "refId": "C"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"online-boutique\", pod=~\"frontend-.*|cartservice-.*|productcatalogservice-.*\"}[1m]))", "legendFormat": "ALL 3 TX combined", "refId": "D"}], "title": "Panel 5 \u2014 Network Transmit Bytes/s (per service + combined)", "description": "Outbound network throughput per service pod group plus combined. A rising TX curve confirms Locust requests are actively being processed and responses sent. Higher TX in Run 2 (KEDA) vs Run 1 (HPA) at the same time window shows more requests being served successfully due to pre-scaled capacity.", "type": "timeseries"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"lineWidth": 2, "fillOpacity": 8}, "unit": "short", "min": 0}, "overrides": [{"matcher": {"id": "byName", "options": "frontend desired"}, "properties": [{"id": "color", "value": {"fixedColor": "#73BF69", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "cartservice desired"}, "properties": [{"id": "color", "value": {"fixedColor": "#F2CC0C", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "productcatalogservice desired"}, "properties": [{"id": "color", "value": {"fixedColor": "#FF9830", "mode": "fixed"}}]}, {"matcher": {"id": "byName", "options": "ALL 3 desired combined"}, "properties": [{"id": "color", "value": {"fixedColor": "#FF5733", "mode": "fixed"}}, {"id": "custom.lineWidth", "value": 3}, {"id": "custom.lineStyle", "value": {"dash": [8, 4], "fill": "dash"}}]}]}, "gridPos": {"h": 8, "w": 24, "x": 0, "y": 40}, "id": 6, "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}}, "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "kube_deployment_spec_replicas{namespace=\"online-boutique\", deployment=\"frontend\"}", "legendFormat": "frontend desired", "refId": "A"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "kube_deployment_spec_replicas{namespace=\"online-boutique\", deployment=\"cartservice\"}", "legendFormat": "cartservice desired", "refId": "B"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "kube_deployment_spec_replicas{namespace=\"online-boutique\", deployment=\"productcatalogservice\"}", "legendFormat": "productcatalogservice desired", "refId": "C"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(kube_deployment_spec_replicas{namespace=\"online-boutique\", deployment=~\"frontend|cartservice|productcatalogservice\"})", "legendFormat": "ALL 3 desired combined", "refId": "D"}], "title": "Panel 6 \u2014 Spec Replicas / Autoscaler Decision Timeline (per service + combined)", "description": "The spec.replicas value \u2014 what the autoscaler (HPA or KEDA) has decided the deployment should have. This is the autoscaler decision timeline. In Run 1 (HPA) the step-up happens after CPU threshold is breached. In Run 2 (KEDA) the step-up happens before Locust starts, driven by the ML prediction. The timing difference between this panel and Locust start time is your core thesis evidence.", "type": "timeseries"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"lineWidth": 2, "fillOpacity": 8}, "unit": "reqps", "min": 0}, "overrides": [{"matcher": {"id": "byName", "options": "Predicted RPS (ML)"}, "properties": [{"id": "color", "value": {"fixedColor": "#8AB8FF", "mode": "fixed"}}, {"id": "custom.lineWidth", "value": 3}]}, {"matcher": {"id": "byName", "options": "KEDA threshold frontend"}, "properties": [{"id": "color", "value": {"fixedColor": "#73BF69", "mode": "fixed"}}, {"id": "custom.lineStyle", "value": {"dash": [6, 3], "fill": "dash"}}]}, {"matcher": {"id": "byName", "options": "KEDA threshold cartservice"}, "properties": [{"id": "color", "value": {"fixedColor": "#F2CC0C", "mode": "fixed"}}, {"id": "custom.lineStyle", "value": {"dash": [6, 3], "fill": "dash"}}]}, {"matcher": {"id": "byName", "options": "KEDA threshold productcatalog"}, "properties": [{"id": "color", "value": {"fixedColor": "#FF9830", "mode": "fixed"}}, {"id": "custom.lineStyle", "value": {"dash": [6, 3], "fill": "dash"}}]}]}, "gridPos": {"h": 8, "w": 24, "x": 0, "y": 48}, "id": 7, "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}}, "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "predicted_rps", "legendFormat": "Predicted RPS (ML)", "refId": "A"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "predicted_rps / 5", "legendFormat": "KEDA threshold frontend", "refId": "B"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "predicted_rps / 5", "legendFormat": "KEDA threshold cartservice", "refId": "C"}, {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "predicted_rps / 5", "legendFormat": "KEDA threshold productcatalog", "refId": "D"}], "title": "Panel 7 \u2014 ML Predicted RPS + KEDA Trigger Thresholds (per service + combined)", "description": "The Holt-Winters forecast (predicted_rps) from the FastAPI ML service \u2014 the signal that drives KEDA pre-scaling. The 3 dashed lines show the per-service KEDA trigger value (predicted_rps divided by threshold=5). When predicted_rps crosses the trigger line, KEDA scales that service up proactively. This panel is the ML evidence \u2014 it shows the system acting on a forecast, not on observed load.", "type": "timeseries"}], "refresh": "10s", "schemaVersion": 38, "tags": ["phase9", "autoscaling", "keda", "hpa", "online-boutique"], "templating": {"list": []}, "time": {"from": "now-30m", "to": "now"}, "timepicker": {}, "timezone": "browser", "title": "Phase 9 \u2014 Predictive vs Reactive Autoscaling", "uid": "phase9-autoscaling", "version": 1}
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "description": "Phase 9 \u2014 Predictive (KEDA + Holt-Winters) vs Reactive (HPA) autoscaling. Each panel shows frontend, cartservice, productcatalogservice, and their combined total.",
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 8
+              },
+              "unit": "short",
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "frontend"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#73BF69",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "cartservice"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#F2CC0C",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "productcatalogservice"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF9830",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "ALL 3 combined"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF5733",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 3
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        8,
+                        4
+                      ],
+                      "fill": "dash"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "id": 1,
+          "options": {
+            "tooltip": {
+              "mode": "multi"
+            },
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "kube_deployment_status_replicas{namespace=\"online-boutique\", deployment=\"frontend\"}",
+              "legendFormat": "frontend",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "kube_deployment_status_replicas{namespace=\"online-boutique\", deployment=\"cartservice\"}",
+              "legendFormat": "cartservice",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "kube_deployment_status_replicas{namespace=\"online-boutique\", deployment=\"productcatalogservice\"}",
+              "legendFormat": "productcatalogservice",
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(kube_deployment_status_replicas{namespace=\"online-boutique\", deployment=~\"frontend|cartservice|productcatalogservice\"})",
+              "legendFormat": "ALL 3 combined",
+              "refId": "D"
+            }
+          ],
+          "title": "Panel 1 \u2014 Desired Replica Count (per service + combined)",
+          "description": "Desired replicas for each of the 3 autoscaled services plus their combined total. Run 1 (HPA): replicas climb reactively after CPU threshold is breached. Run 2 (KEDA): replicas pre-scale before Locust ramps up. The combined line shows total pod capacity across all 3 services.",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 8
+              },
+              "unit": "short",
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "frontend ready"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#73BF69",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "cartservice ready"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#F2CC0C",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "productcatalogservice ready"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF9830",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "ALL 3 ready combined"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF5733",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 3
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        8,
+                        4
+                      ],
+                      "fill": "dash"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 8
+          },
+          "id": 2,
+          "options": {
+            "tooltip": {
+              "mode": "multi"
+            },
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "kube_deployment_status_replicas_ready{namespace=\"online-boutique\", deployment=\"frontend\"}",
+              "legendFormat": "frontend ready",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "kube_deployment_status_replicas_ready{namespace=\"online-boutique\", deployment=\"cartservice\"}",
+              "legendFormat": "cartservice ready",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "kube_deployment_status_replicas_ready{namespace=\"online-boutique\", deployment=\"productcatalogservice\"}",
+              "legendFormat": "productcatalogservice ready",
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(kube_deployment_status_replicas_ready{namespace=\"online-boutique\", deployment=~\"frontend|cartservice|productcatalogservice\"})",
+              "legendFormat": "ALL 3 ready combined",
+              "refId": "D"
+            }
+          ],
+          "title": "Panel 2 \u2014 Ready Replicas / Scaling Lag Indicator (per service + combined)",
+          "description": "Ready replicas only \u2014 pods that have passed readiness probes and are actually serving traffic. The gap between Panel 1 (desired) and Panel 2 (ready) during Run 1 (HPA) is the scaling lag \u2014 the window where your application is under-provisioned. In Run 2 (KEDA) this gap should be near zero because pods are already ready before load lands.",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 8
+              },
+              "unit": "cores",
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "frontend CPU"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#73BF69",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "cartservice CPU"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#F2CC0C",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "productcatalogservice CPU"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF9830",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "ALL 3 total CPU"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF5733",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 3
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        8,
+                        4
+                      ],
+                      "fill": "dash"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 16
+          },
+          "id": 3,
+          "options": {
+            "tooltip": {
+              "mode": "multi"
+            },
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"online-boutique\", pod=~\"frontend-.*\"}[1m]))",
+              "legendFormat": "frontend CPU",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"online-boutique\", pod=~\"cartservice-.*\"}[1m]))",
+              "legendFormat": "cartservice CPU",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"online-boutique\", pod=~\"productcatalogservice-.*\"}[1m]))",
+              "legendFormat": "productcatalogservice CPU",
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"online-boutique\", pod=~\"frontend-.*|cartservice-.*|productcatalogservice-.*\"}[1m]))",
+              "legendFormat": "ALL 3 total CPU",
+              "refId": "D"
+            }
+          ],
+          "title": "Panel 3 \u2014 CPU Usage in Cores (per service + combined)",
+          "description": "CPU consumption rate per service plus combined total. In Run 1 (HPA) the combined line spikes sharply because all 3 services are under-replicated while HPA waits for the threshold to be breached. In Run 2 (KEDA) the curve is flatter per pod because load is distributed across pre-scaled replicas.",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 8
+              },
+              "unit": "bytes",
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "frontend memory"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#73BF69",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "cartservice memory"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#F2CC0C",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "productcatalogservice memory"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF9830",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "ALL 3 total memory"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF5733",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 3
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        8,
+                        4
+                      ],
+                      "fill": "dash"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 24
+          },
+          "id": 4,
+          "options": {
+            "tooltip": {
+              "mode": "multi"
+            },
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"online-boutique\", pod=~\"frontend-.*\"})",
+              "legendFormat": "frontend memory",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"online-boutique\", pod=~\"cartservice-.*\"})",
+              "legendFormat": "cartservice memory",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"online-boutique\", pod=~\"productcatalogservice-.*\"})",
+              "legendFormat": "productcatalogservice memory",
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"online-boutique\", pod=~\"frontend-.*|cartservice-.*|productcatalogservice-.*\"})",
+              "legendFormat": "ALL 3 total memory",
+              "refId": "D"
+            }
+          ],
+          "title": "Panel 4 \u2014 Memory Working Set in Bytes (per service + combined)",
+          "description": "Working set memory per service plus combined total. Memory scales linearly with replica count \u2014 more replicas means more memory consumed. Confirms workload isolation: memory stays within workload-pool bounds and never bleeds into default-pool where platform services run.",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 8
+              },
+              "unit": "Bps",
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "frontend TX"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#73BF69",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "cartservice TX"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#F2CC0C",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "productcatalogservice TX"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF9830",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "ALL 3 TX combined"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF5733",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 3
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        8,
+                        4
+                      ],
+                      "fill": "dash"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 32
+          },
+          "id": 5,
+          "options": {
+            "tooltip": {
+              "mode": "multi"
+            },
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"online-boutique\", pod=~\"frontend-.*\"}[1m]))",
+              "legendFormat": "frontend TX",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"online-boutique\", pod=~\"cartservice-.*\"}[1m]))",
+              "legendFormat": "cartservice TX",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"online-boutique\", pod=~\"productcatalogservice-.*\"}[1m]))",
+              "legendFormat": "productcatalogservice TX",
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"online-boutique\", pod=~\"frontend-.*|cartservice-.*|productcatalogservice-.*\"}[1m]))",
+              "legendFormat": "ALL 3 TX combined",
+              "refId": "D"
+            }
+          ],
+          "title": "Panel 5 \u2014 Network Transmit Bytes/s (per service + combined)",
+          "description": "Outbound network throughput per service pod group plus combined. A rising TX curve confirms Locust requests are actively being processed and responses sent. Higher TX in Run 2 (KEDA) vs Run 1 (HPA) at the same time window shows more requests being served successfully due to pre-scaled capacity.",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 8
+              },
+              "unit": "short",
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "frontend desired"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#73BF69",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "cartservice desired"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#F2CC0C",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "productcatalogservice desired"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF9830",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "ALL 3 desired combined"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF5733",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 3
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        8,
+                        4
+                      ],
+                      "fill": "dash"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 40
+          },
+          "id": 6,
+          "options": {
+            "tooltip": {
+              "mode": "multi"
+            },
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "kube_deployment_spec_replicas{namespace=\"online-boutique\", deployment=\"frontend\"}",
+              "legendFormat": "frontend desired",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "kube_deployment_spec_replicas{namespace=\"online-boutique\", deployment=\"cartservice\"}",
+              "legendFormat": "cartservice desired",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "kube_deployment_spec_replicas{namespace=\"online-boutique\", deployment=\"productcatalogservice\"}",
+              "legendFormat": "productcatalogservice desired",
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(kube_deployment_spec_replicas{namespace=\"online-boutique\", deployment=~\"frontend|cartservice|productcatalogservice\"})",
+              "legendFormat": "ALL 3 desired combined",
+              "refId": "D"
+            }
+          ],
+          "title": "Panel 6 \u2014 Spec Replicas / Autoscaler Decision Timeline (per service + combined)",
+          "description": "The spec.replicas value \u2014 what the autoscaler (HPA or KEDA) has decided the deployment should have. This is the autoscaler decision timeline. In Run 1 (HPA) the step-up happens after CPU threshold is breached. In Run 2 (KEDA) the step-up happens before Locust starts, driven by the ML prediction. The timing difference between this panel and Locust start time is your core thesis evidence.",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 8
+              },
+              "unit": "reqps",
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Predicted RPS (ML)"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#8AB8FF",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 3
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "KEDA threshold frontend"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#73BF69",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        6,
+                        3
+                      ],
+                      "fill": "dash"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "KEDA threshold cartservice"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#F2CC0C",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        6,
+                        3
+                      ],
+                      "fill": "dash"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "KEDA threshold productcatalog"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF9830",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        6,
+                        3
+                      ],
+                      "fill": "dash"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 48
+          },
+          "id": 7,
+          "options": {
+            "tooltip": {
+              "mode": "multi"
+            },
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "predicted_rps",
+              "legendFormat": "Predicted RPS (ML)",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "predicted_rps / 5",
+              "legendFormat": "KEDA threshold frontend",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "predicted_rps / 5",
+              "legendFormat": "KEDA threshold cartservice",
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "predicted_rps / 5",
+              "legendFormat": "KEDA threshold productcatalog",
+              "refId": "D"
+            }
+          ],
+          "title": "Panel 7 \u2014 ML Predicted RPS + KEDA Trigger Thresholds (per service + combined)",
+          "description": "The Holt-Winters forecast (predicted_rps) from the FastAPI ML service \u2014 the signal that drives KEDA pre-scaling. The 3 dashed lines show the per-service KEDA trigger value (predicted_rps divided by threshold=5). When predicted_rps crosses the trigger line, KEDA scales that service up proactively. This panel is the ML evidence \u2014 it shows the system acting on a forecast, not on observed load.",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 38,
+      "tags": [
+        "phase9",
+        "autoscaling",
+        "keda",
+        "hpa",
+        "online-boutique"
+      ],
+      "templating": {
+        "list": []
+      },
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Phase 9 \u2014 Predictive vs Reactive Autoscaling",
+      "uid": "phase9-autoscaling",
+      "version": 1
+    }
