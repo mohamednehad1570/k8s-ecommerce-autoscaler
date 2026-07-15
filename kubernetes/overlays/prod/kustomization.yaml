@@ -5,7 +5,14 @@ resources:
 - ../../base/online-boutique
 
 patches:
-- path: node-affinity-patch.yaml
-  target:
-    kind: Deployment
-    namespace: online-boutique
+- path: patch-frontend.yaml
+- path: patch-cartservice.yaml
+- path: patch-productcatalogservice.yaml
+- path: patch-currencyservice.yaml
+- path: patch-checkoutservice.yaml
+- path: patch-shippingservice.yaml
+- path: patch-emailservice.yaml
+- path: patch-paymentservice.yaml
+- path: patch-recommendationservice.yaml
+- path: patch-adservice.yaml
+- path: patch-redis-cart.yaml
