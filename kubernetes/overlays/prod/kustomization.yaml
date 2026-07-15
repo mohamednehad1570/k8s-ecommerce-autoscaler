@@ -6,3 +6,6 @@ resources:
 
 patches:
 - path: node-affinity-patch.yaml
+  target:
+    kind: Deployment
+    namespace: online-boutique
