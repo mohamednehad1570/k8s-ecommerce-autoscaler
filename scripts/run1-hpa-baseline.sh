@@ -136,9 +136,9 @@ log "  All services at 1/1 ready OK"
 # ── STEP 4 — Apply HPAs ───────────────────────────────────────────────────────
 log "Step 4/7 — Applying HPA manifests (CPU 50%, max 8 replicas)..."
 # manifests/ path is relative to the scripts/ directory where this script lives
-kubectl apply -f manifests/frontend-hpa.yaml
-kubectl apply -f manifests/cartservice-hpa.yaml
-kubectl apply -f manifests/productcatalogservice-hpa.yaml
+kubectl apply -f scripts/manifests/frontend-hpa.yaml
+kubectl apply -f scripts/manifests/cartservice-hpa.yaml
+kubectl apply -f scripts/manifests/productcatalogservice-hpa.yaml
 sleep 10
 
 # Confirm HPAs are active
