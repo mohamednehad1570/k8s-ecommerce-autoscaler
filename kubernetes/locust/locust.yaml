@@ -56,6 +56,23 @@ spec:
       labels:
         app: locust
     spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: cloud.google.com/gke-nodepool
+                operator: In
+                values:
+                - workload-pool
+          - weight: 50
+            preference:
+              matchExpressions:
+              - key: cloud.google.com/gke-nodepool
+                operator: In
+                values:
+                - burst-pool
       containers:
       - name: locust
         image: locustio/locust:2.29.1      # official Locust image, pinned version

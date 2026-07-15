@@ -25,6 +25,23 @@ spec:
         prometheus.io/port: "8000"          # which port to scrape
         prometheus.io/path: "/metrics"      # which path to hit
     spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: cloud.google.com/gke-nodepool
+                operator: In
+                values:
+                - workload-pool
+          - weight: 50
+            preference:
+              matchExpressions:
+              - key: cloud.google.com/gke-nodepool
+                operator: In
+                values:
+                - burst-pool
       containers:
       - name: ml-service
         # Image built by CI (GitHub Actions → GHCR) and pushed on merge to main
@@ -89,3 +106,6 @@ spec:
   - port: http                              # matches Service port name above
     path: /metrics                          # Prometheus scrape path
     interval: 15s                           # scrape every 15 seconds
+---
+# Kustomize-style patch not needed here — ml-service is managed directly
+# nodeAffinity added inline: prefers workload-pool, accepts burst-pool
